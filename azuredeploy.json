@@ -1,0 +1,268 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vmName": {
+      "type": "string",
+      "defaultValue": "lt-vm",
+      "metadata": {
+        "description": "Base name for the Virtual Machine and related resources."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Administrator username for the Virtual Machine."
+      }
+    },
+    "adminPasswordOrSshPublicKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Administrator password or SSH public key for the Virtual Machine. If SSH key, ensure it's a valid public key string."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B1ms",
+      "allowedValues": [
+        "Standard_B1s",
+        "Standard_B1ms",
+        "Standard_B2s"
+      ],
+      "metadata": {
+        "description": "Size of the Virtual Machine."
+      }
+    },
+    "ubuntuOSVersionSku": {
+      "type": "string",
+      "defaultValue": "22_04-LTS-gen2",
+      "metadata": {
+        "description": "The SKU for the Ubuntu OS image (e.g., 22_04-LTS-gen2 from Canonical UbuntuServer offer)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources, defaults to the resource group location."
+      }
+    },
+    "sshSourceAddressPrefix": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": {
+        "description": "The source IP address range for SSH access. Use '*' for any, or specify your IP CIDR for security."
+      }
+    },
+    "libreTranslateSourceAddressPrefix": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": {
+        "description": "The source IP address range for LibreTranslate access (port 5000). Use '*' for any, or specify your IP CIDR."
+      }
+    }
+  },
+  "variables": {
+    "vnetName": "[concat(parameters('vmName'), '-vnet')]",
+    "subnetName": "default",
+    "publicIpAddressName": "[concat(parameters('vmName'), '-pip')]",
+    "networkInterfaceName": "[concat(parameters('vmName'), '-nic')]",
+    "nsgName": "[concat(parameters('vmName'), '-nsg')]",
+    "virtualMachineName": "[parameters('vmName')]",
+    "osDiskType": "Standard_LRS",
+    "imagePublisher": "Canonical",
+    "imageOffer": "UbuntuServer", // For common Ubuntu Server images
+    "imageSku": "[parameters('ubuntuOSVersionSku')]",
+    "diagnosticsStorageAccountName": "[toLower(concat('diag', uniqueString(resourceGroup().id)))]" // Storage account names must be lowercase and unique
+  },
+  "resources": [
+    // 1. Storage Account for Boot Diagnostics
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('diagnosticsStorageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {}
+    },
+    // 2. Network Security Group (NSG)
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "SSH",
+            "properties": {
+              "priority": 1000,
+              "access": "Allow",
+              "direction": "Inbound",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "22",
+              "sourceAddressPrefix": "[parameters('sshSourceAddressPrefix')]",
+              "destinationAddressPrefix": "*"
+            }
+          },
+          {
+            "name": "LibreTranslate",
+            "properties": {
+              "priority": 1010,
+              "access": "Allow",
+              "direction": "Inbound",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "5000",
+              "sourceAddressPrefix": "[parameters('libreTranslateSourceAddressPrefix')]",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    },
+    // 3. Virtual Network (VNet)
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24"
+            }
+          }
+        ]
+      },
+      "dependsOn": [] // VNet is independent for now
+    },
+    // 4. Public IP Address
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('publicIpAddressName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard" // Standard SKU is required for NSG association with Standard VM sizes
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static", // Static IP so it doesn't change on reboot
+        "dnsSettings": { // Optional: for a FQDN
+          "domainNameLabel": "[toLower(concat(parameters('vmName'), uniqueString(resourceGroup().id)))]"
+        }
+      }
+    },
+    // 5. Network Interface (NIC)
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('networkInterfaceName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]"
+              },
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              }
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+        }
+      }
+    },
+    // 6. Virtual Machine
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-07-01", // Use a recent API version for VMs
+      "name": "[variables('virtualMachineName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('diagnosticsStorageAccountName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('virtualMachineName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPasswordOrSshPublicKey')]", // ARM will try to determine if it's a password or key
+          "linuxConfiguration": { // Required for Linux VMs
+            "disablePasswordAuthentication": false // Set to true if using SSH key exclusively
+          }
+        },
+        "storageProfile": {
+          "imageReference": {
+          "publisher": "Canonical", 
+          "offer": "0001-com-ubuntu-server-jammy",    
+          "sku": "22_04-lts-gen2",  
+          "version": "22.04.202405140"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "[variables('osDiskType')]"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
+            }
+          ]
+        },
+        "diagnosticsProfile": { // Enable Boot Diagnostics
+          "bootDiagnostics": {
+            "enabled": true,
+            "storageUri": "[reference(variables('diagnosticsStorageAccountName')).primaryEndpoints.blob]"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "adminUsername": {
+      "type": "string",
+      "value": "[parameters('adminUsername')]"
+    },
+    "publicIPAddress": {
+      "type": "string",
+      "value": "[reference(variables('publicIpAddressName')).ipAddress]"
+    },
+    "fqdn": {
+      "type": "string",
+      "value": "[reference(variables('publicIpAddressName')).dnsSettings.fqdn]"
+    },
+    "sshCommand": {
+      "type": "string",
+      "value": "[concat('ssh ', parameters('adminUsername'), '@', reference(variables('publicIpAddressName')).ipAddress)]"
+    }
+  }
+}
