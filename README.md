@@ -44,46 +44,19 @@ Déployer votre propre instance de LibreTranslate vous offre les avantages suiva
 
 2.  **Modifiez le fichier `azuredeploy.parameters.json` :**
     Ouvrez `azuredeploy.parameters.json` dans un éditeur de texte et spécifiez vos valeurs.
-    ```json
-    {
-      "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
-      "contentVersion": "1.0.0.0",
-      "parameters": {
-        "vmName": {
-          "value": "myltsrv" 
-        },
-        "adminUsername": {
-          "value": "ltadmin" 
-        },
-        "adminPasswordOrSshPublicKey": {
-          "value": "METTRE_VOTRE_MOT_DE_PASSE_COMPLEXE_OU_CLE_SSH_PUBLIQUE_ICI" 
-        },
-        "location": {
-            "value": "westeurope" 
-        },
-        "sshSourceAddressPrefix": {
-            "value": "*" 
-        },
-        "libreTranslateSourceAddressPrefix": {
-            "value": "*" 
-        }
-        // La taille de la VM (vmSize) est par défaut Standard_B1ms.
-        // L'image Ubuntu (via imageReference) est définie directement dans le modèle azuredeploy.json.
-      }
-    }
-    ```
-    **Important :** Remplacez `"METTRE_VOTRE_MOT_DE_PASSE_COMPLEXE_OU_CLE_SSH_PUBLIQUE_ICI"` par votre mot de passe robuste (conforme aux exigences Azure : 6-72 caractères, 3 des 4 catégories de complexité) ou par votre clé SSH publique. Pour une meilleure sécurité, limitez `sshSourceAddressPrefix` et `libreTranslateSourceAddressPrefix` à votre adresse IP si possible (par exemple, `"VOTRE_IP/32"`).
+
+   **Important :** Remplacez `"METTRE_VOTRE_MOT_DE_PASSE_COMPLEXE_OU_CLE_SSH_PUBLIQUE_ICI"` par votre mot de passe robuste (conforme aux exigences Azure : 6-72 caractères, 3 des 4 catégories de complexité) ou par votre clé SSH publique. Pour une meilleure sécurité, limitez `sshSourceAddressPrefix` et `libreTranslateSourceAddressPrefix` à votre adresse IP si possible (par exemple, `"VOTRE_IP/32"`).
 
 ### 2. Déploiement de l'infrastructure Azure avec le modèle ARM
 
 Exécutez les commandes suivantes dans Azure CLI (ou Azure Cloud Shell) :
 
-1.  **Connectez-vous à votre compte Azure (si ce n'est pas déjà fait) :**
+1.  **Connectez-vous à votre compte Azure:**
     ```bash
     az login
     ```
 
-2.  **Créez un groupe de ressources (s'il n'existe pas déjà) :**
+2.  **Créez un groupe de ressources:**
     Remplacez `MonGroupeLibreTranslateRG` et `westeurope` par le nom et la région souhaités. La région doit correspondre à celle spécifiée dans `azuredeploy.parameters.json`.
     ```bash
     az group create --name MonGroupeLibreTranslateRG --location westeurope
